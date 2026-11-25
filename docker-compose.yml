@@ -1,0 +1,17 @@
+services:
+  workspace-mcp:
+    build:
+      context: .
+    image: workspace-mcp:latest
+    container_name: workspace-mcp
+    restart: unless-stopped
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    networks:
+      - web
+
+networks:
+  web:
+    external: true
