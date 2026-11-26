@@ -258,6 +258,9 @@ def calendar_list(
             .execute()
         )
         events.extend(event_shape(e) for e in result.get("items", []))
+    events.sort(
+        key=lambda e: e["start"].get("dateTime") or e["start"].get("date") or ""
+    )
     return {"events": events}
 
 
