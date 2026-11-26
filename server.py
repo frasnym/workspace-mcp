@@ -225,6 +225,7 @@ def calendar_list(
     endTime: str | None = None,
     timeZone: str | None = None,
     pageSize: int = 100,
+    calendarId: str = "primary",
 ) -> dict[str, Any]:
     """List events in a window"""
     return {
@@ -233,7 +234,7 @@ def calendar_list(
             for e in service("calendar")
             .events()
             .list(
-                calendarId="primary",
+                calendarId=calendarId,
                 timeMin=startTime,
                 timeMax=endTime,
                 timeZone=timeZone,
@@ -248,15 +249,33 @@ def calendar_list(
 
 
 @mcp.tool()
+def calendars_list() -> dict[str, Any]:
+    """List accessible calendars"""
+    return {
+        "calendars": [
+            {"id": item["id"], "summary": item.get("summary", "")}
+            for item in service("calendar")
+            .calendarList()
+            .list(maxResults=100)
+            .execute()
+            .get("items", [])
+        ]
+    }
+
+
+@mcp.tool()
 def event_create(
-    summary: str = "", startTime: str = "", endTime: str = ""
+    summary: str = "",
+    startTime: str = "",
+    endTime: str = "",
+    calendarId: str = "primary",
 ) -> dict[str, Any]:
     """Create a calendar event"""
     return event_shape(
         service("calendar")
         .events()
         .insert(
-            calendarId="primary",
+            calendarId=calendarId,
             body={"summary": summary, "startTime": startTime, "endTime": endTime},
         )
         .execute()
@@ -270,6 +289,7 @@ def event_update(
     startTime: str | None = None,
     endTime: str | None = None,
     location: str | None = None,
+    calendarId: str = "primary",
 ) -> dict[str, Any]:
     """Update a calendar event"""
     body = {
@@ -285,18 +305,18 @@ def event_update(
     return event_shape(
         service("calendar")
         .events()
-        .patch(calendarId="primary", eventId=eventId, body=body)
+        .patch(calendarId=calendarId, eventId=eventId, body=body)
         .execute()
     )
 
 
 @mcp.tool()
-def event_delete(eventId: str) -> dict[str, Any]:
+def event_delete(eventId: str, calendarId: str = "primary") -> dict[str, Any]:
     """Delete a calendar event"""
     return (
         service("calendar")
         .events()
-        .delete(calendarId="primary", eventId=eventId)
+        .delete(calendarId=calendarId, eventId=eventId)
         .execute()
         or {}
     )
