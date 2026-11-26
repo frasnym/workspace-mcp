@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "workspace": {
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer test"
+      },
+      "protocolEra": "legacy",
+      "suppressNotificationStream": true
+    }
+  }
+}
