@@ -9,11 +9,11 @@ from __future__ import annotations
 import base64
 import json
 import os
-from pathlib import Path
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -39,7 +39,9 @@ def credentials() -> Credentials:
         _CREDS = Credentials(
             token=None,
             refresh_token=env_value("GOOGLE_REFRESH_TOKEN"),
-            token_uri=env_value("GOOGLE_TOKEN_URI", "https://oauth2.googleapis.com/token"),
+            token_uri=env_value(
+                "GOOGLE_TOKEN_URI", "https://oauth2.googleapis.com/token"
+            ),
             client_id=env_value("GOOGLE_MCP_CLIENT_ID"),
             client_secret=env_value("GOOGLE_MCP_CLIENT_SECRET"),
         )
@@ -80,7 +82,7 @@ def body_text(payload: dict) -> str:
         if data:
             try:
                 return base64.urlsafe_b64decode(data + "==").decode("utf-8", "replace")
-            except Exception:
+            except ValueError:
                 return ""
     for part in payload.get("parts", []):
         text = body_text(part)
@@ -94,8 +96,8 @@ def message_shape(message: dict) -> dict:
     return {
         "id": message.get("id", ""),
         "threadId": message.get("threadId", ""),
-        "subject": header(payload.get("headers"), "subject"),
-        "sender": header(payload.get("headers"), "from"),
+        "subject": message.get("subject") or header(payload.get("headers"), "subject"),
+        "sender": message.get("sender") or header(payload.get("headers"), "from"),
         "snippet": message.get("snippet", ""),
         "labelIds": message.get("labelIds", []),
         "plaintextBody": body_text(payload),
@@ -137,7 +139,11 @@ def find_tasklist(task_id: str) -> str:
 def s(
     name: str, description: str, props: dict, required: list[str] | None = None
 ) -> dict:
-    schema: dict[str, Any] = {"type": "object", "properties": props, "additionalProperties": True}
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": props,
+        "additionalProperties": True,
+    }
     if required:
         schema["required"] = required
     return {"name": name, "description": description, "inputSchema": schema}
@@ -252,9 +258,7 @@ HANDLERS: dict[str, Callable[[dict], Any]] = {
         service("gmail")
         .users()
         .messages()
-        .get(
-            userId="me", id=a["messageId"], format=a.get("messageFormat", "full")
-        )
+        .get(userId="me", id=a["messageId"], format=a.get("messageFormat", "full"))
         .execute()
     ),
     "list_labels": lambda a: {
@@ -425,7 +429,7 @@ class BearerAuth(BaseHTTPMiddleware):
 async def mcp_endpoint(request: HTTPRequest) -> Response:
     try:
         payload = await request.json()
-    except Exception:
+    except ValueError:
         return JSONResponse(
             {"jsonrpc": "2.0", "error": {"code": -32700, "message": "invalid JSON"}},
             status_code=400,
@@ -436,7 +440,7 @@ async def mcp_endpoint(request: HTTPRequest) -> Response:
         return Response(status_code=202)
     try:
         return JSONResponse(dispatch(payload))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - JSON-RPC error boundary
         return JSONResponse(
             {
                 "jsonrpc": "2.0",
