@@ -222,6 +222,19 @@ def gmail_trash(messageId: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def gmail_trash_bulk(messageIds: list[str]) -> dict[str, Any]:
+    """Trash messages in bulk (up to 1000 per call)"""
+    return (
+        service("gmail")
+        .users()
+        .messages()
+        .batchModify(userId="me", body={"ids": messageIds, "addLabelIds": ["TRASH"]})
+        .execute()
+        or {}
+    )
+
+
+@mcp.tool()
 def calendar_list(
     startTime: str | None = None,
     endTime: str | None = None,

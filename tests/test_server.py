@@ -68,6 +68,43 @@ class MultiCalendarApi:
         return {"items": self.events_by_calendar[self.calls[-1]["calendarId"]]}
 
 
+class RecordingGmailMessages:
+    """Gmail messages API stand-in that records batchModify calls."""
+
+    def __init__(self):
+        self.calls = []
+
+    def users(self):
+        return self
+
+    def messages(self):
+        return self
+
+    def batchModify(self, **kwargs):
+        self.calls.append(kwargs)
+        return self
+
+    def execute(self):
+        return {}
+
+
+class GmailToolTests(unittest.TestCase):
+    def test_gmail_trash_bulk_adds_trash_label_to_every_id(self):
+        api = RecordingGmailMessages()
+        with mock.patch.object(server, "service", return_value=api):
+            server.gmail_trash_bulk(messageIds=["m1", "m2", "m3"])
+
+        self.assertEqual(
+            api.calls,
+            [
+                {
+                    "userId": "me",
+                    "body": {"ids": ["m1", "m2", "m3"], "addLabelIds": ["TRASH"]},
+                }
+            ],
+        )
+
+
 class CalendarToolTests(unittest.TestCase):
     def call_with_api(self, tool, *args, result=None, **kwargs):
         api = RecordingCalendar(result if result is not None else {})
@@ -274,7 +311,7 @@ class SDKServerTests(unittest.TestCase):
         self.assertFalse(hasattr(server, "TOOLS"))
         self.assertFalse(hasattr(server, "dispatch"))
 
-    def test_all_seventeen_tools_keep_their_names(self):
+    def test_all_eighteen_tools_keep_their_names(self):
         names = {tool.name for tool in server.mcp._tool_manager.list_tools()}
         self.assertEqual(
             names,
@@ -285,6 +322,7 @@ class SDKServerTests(unittest.TestCase):
                 "list_labels",
                 "gmail_modify_labels",
                 "gmail_trash",
+                "gmail_trash_bulk",
                 "calendar_list",
                 "event_create",
                 "event_update",
