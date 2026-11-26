@@ -429,7 +429,7 @@ class BearerAuth(BaseHTTPMiddleware):
         if request.headers.get("authorization") != f"Bearer {BEARER}" or not BEARER:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         body = await request.body()
-        logger.info("MCP request body: %s", body.decode("utf-8", "replace"))
+        logger.debug("MCP request body: %s", body.decode("utf-8", "replace"))
         return await call_next(request)
 
 

@@ -11,12 +11,14 @@
         "--host",
         "127.0.0.1",
         "--port",
-        "8000"
+        "8000",
+        "--log-level",
+        "debug"
       ],
       "python": "${workspaceFolder}/.venv/bin/python",
       "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/.env",
-      "console": "integratedTerminal"
+      "console": "internalConsole"
     }
   ]
 }

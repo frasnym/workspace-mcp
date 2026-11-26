@@ -211,9 +211,10 @@ class RequestLoggingTests(unittest.TestCase):
 
         request = Request(scope, receive)
         with mock.patch.object(server, "BEARER", "test-token"):
-            with self.assertLogs("uvicorn.error", level="INFO") as logs:
+            with self.assertLogs("uvicorn.error", level="DEBUG") as logs:
                 asyncio.run(server.BearerAuth(app=None).dispatch(request, call_next))
 
+        self.assertEqual(logs.records[0].levelname, "DEBUG")
         self.assertIn(payload.decode(), "\n".join(logs.output))
 
 

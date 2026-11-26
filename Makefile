@@ -14,7 +14,7 @@ install:
 
 run:
 	@test -f .env || { echo "missing .env: cp .env.example .env first" >&2; exit 1; }
-	@set -a; . ./.env; set +a; exec $(UVICORN) server:app --host 127.0.0.1 --port 8000
+	@set -a; . ./.env; set +a; exec $(UVICORN) server:app --host 127.0.0.1 --port 8000 --log-level debug
 
 inspect:
 	$(INSPECTOR) --config ./mcp.json
