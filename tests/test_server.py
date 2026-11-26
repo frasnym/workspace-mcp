@@ -13,7 +13,7 @@ class SDKServerTests(unittest.TestCase):
         self.assertFalse(hasattr(server, "TOOLS"))
         self.assertFalse(hasattr(server, "dispatch"))
 
-    def test_all_fifteen_tools_keep_their_names(self):
+    def test_all_sixteen_tools_keep_their_names(self):
         names = {tool.name for tool in server.mcp._tool_manager.list_tools()}
         self.assertEqual(
             names,
@@ -33,6 +33,7 @@ class SDKServerTests(unittest.TestCase):
                 "task_create",
                 "task_update",
                 "task_complete",
+                "task_delete",
             },
         )
 

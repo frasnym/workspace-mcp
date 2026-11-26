@@ -2,7 +2,7 @@
 
 Standalone MCP server for the four Uno digests. Owned by this repo, deployed by `homelab-01`'s `bin/workspace-mcp-deploy.sh`.
 
-It exposes 15 tools (Gmail, Calendar, Tasks) over Streamable HTTP at `/mcp`, built with the official Python MCP SDK and wrapped around the Google APIs using the refresh token in `secret/workspace-mcp`. Hermes' `default` profile calls it as `mcp_servers.workspace` with a bearer token from the same Vault path; the digest cron jobs call it through `google_mcp_client.py`.
+It exposes 16 tools (Gmail, Calendar, Tasks) over Streamable HTTP at `/mcp`, built with the official Python MCP SDK and wrapped around the Google APIs using the refresh token in `secret/workspace-mcp`. Hermes' `default` profile calls it as `mcp_servers.workspace` with a bearer token from the same Vault path; the digest cron jobs call it through `google_mcp_client.py`.
 
 ## Layout
 

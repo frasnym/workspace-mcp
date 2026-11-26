@@ -376,6 +376,18 @@ def task_complete(taskId: str, taskListId: str | None = None) -> dict[str, Any]:
     )
 
 
+@mcp.tool()
+def task_delete(taskId: str, taskListId: str | None = None) -> dict[str, Any]:
+    """Delete a task"""
+    return (
+        service("tasks")
+        .tasks()
+        .delete(tasklist=taskListId or find_tasklist(taskId), task=taskId)
+        .execute()
+        or {}
+    )
+
+
 class BearerAuth(BaseHTTPMiddleware):
     async def dispatch(self, request: HTTPRequest, call_next: Any) -> Response:
         if request.headers.get("authorization") != f"Bearer {BEARER}" or not BEARER:
