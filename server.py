@@ -7,6 +7,7 @@ volume. Every request requires the bearer token from /opt/data/.env.
 from __future__ import annotations
 
 import base64
+import logging
 import os
 from typing import Any
 
@@ -20,6 +21,7 @@ from starlette.requests import Request as HTTPRequest
 from starlette.responses import JSONResponse, Response
 
 mcp = MCPServer("workspace")
+logger = logging.getLogger("uvicorn.error")
 
 
 def env_value(name: str, default: str = "") -> str:
@@ -225,16 +227,27 @@ def calendar_list(
     endTime: str | None = None,
     timeZone: str | None = None,
     pageSize: int = 100,
-    calendarId: str = "primary",
+    calendarId: str | None = None,
 ) -> dict[str, Any]:
     """List events in a window"""
-    return {
-        "events": [
-            event_shape(e)
-            for e in service("calendar")
+    if calendarId is None:
+        calendar_ids = [
+            item["id"]
+            for item in service("calendar")
+            .calendarList()
+            .list(maxResults=100)
+            .execute()
+            .get("items", [])
+        ]
+    else:
+        calendar_ids = [calendarId]
+    events = []
+    for item in calendar_ids:
+        result = (
+            service("calendar")
             .events()
             .list(
-                calendarId=calendarId,
+                calendarId=item,
                 timeMin=startTime,
                 timeMax=endTime,
                 timeZone=timeZone,
@@ -243,9 +256,9 @@ def calendar_list(
                 orderBy="startTime",
             )
             .execute()
-            .get("items", [])
-        ]
-    }
+        )
+        events.extend(event_shape(e) for e in result.get("items", []))
+    return {"events": events}
 
 
 @mcp.tool()
@@ -412,6 +425,8 @@ class BearerAuth(BaseHTTPMiddleware):
     async def dispatch(self, request: HTTPRequest, call_next: Any) -> Response:
         if request.headers.get("authorization") != f"Bearer {BEARER}" or not BEARER:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
+        body = await request.body()
+        logger.info("MCP request body: %s", body.decode("utf-8", "replace"))
         return await call_next(request)
 
 

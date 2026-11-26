@@ -1,5 +1,9 @@
+import asyncio
 import unittest
 from unittest import mock
+
+from starlette.requests import Request
+from starlette.responses import Response
 
 import server
 
@@ -37,6 +41,33 @@ class RecordingCalendar:
         return self.result
 
 
+class MultiCalendarApi:
+    """Calendar API stand-in with distinct calendar and event responses."""
+
+    def __init__(self, calendars, events_by_calendar):
+        self.calendars = calendars
+        self.events_by_calendar = events_by_calendar
+        self.calls = []
+        self.resource = None
+
+    def calendarList(self):
+        self.resource = "calendars"
+        return self
+
+    def events(self):
+        self.resource = "events"
+        return self
+
+    def list(self, **kwargs):
+        self.calls.append(kwargs)
+        return self
+
+    def execute(self):
+        if self.resource == "calendars":
+            return {"items": self.calendars}
+        return {"items": self.events_by_calendar[self.calls[-1]["calendarId"]]}
+
+
 class CalendarToolTests(unittest.TestCase):
     def call_with_api(self, tool, *args, result=None, **kwargs):
         api = RecordingCalendar(result if result is not None else {})
@@ -44,15 +75,76 @@ class CalendarToolTests(unittest.TestCase):
             value = tool(*args, **kwargs)
         return api, value
 
-    def test_calendar_list_queries_requested_calendar(self):
-        api, _ = self.call_with_api(
-            server.calendar_list, calendarId="family@example.com"
+    def test_calendar_list_merges_events_from_all_calendars(self):
+        api = MultiCalendarApi(
+            calendars=[{"id": "primary"}, {"id": "family@example.com"}],
+            events_by_calendar={
+                "primary": [{"id": "e1", "summary": "Personal"}],
+                "family@example.com": [{"id": "e2", "summary": "Family dinner"}],
+            },
         )
-        self.assertEqual(api.calls[-1]["calendarId"], "family@example.com")
+        with mock.patch.object(server, "service", return_value=api):
+            result = server.calendar_list()
 
-    def test_calendar_list_defaults_to_primary(self):
-        api, _ = self.call_with_api(server.calendar_list)
-        self.assertEqual(api.calls[-1]["calendarId"], "primary")
+        self.assertEqual(
+            [event["summary"] for event in result["events"]],
+            ["Personal", "Family dinner"],
+        )
+        self.assertEqual(
+            [call["calendarId"] for call in api.calls if "calendarId" in call],
+            ["primary", "family@example.com"],
+        )
+
+    def test_calendar_list_sorts_merged_events_by_start_time(self):
+        api = MultiCalendarApi(
+            calendars=[{"id": "primary"}, {"id": "family@example.com"}],
+            events_by_calendar={
+                "primary": [
+                    {
+                        "id": "e1",
+                        "summary": "Late",
+                        "start": {"dateTime": "2026-11-26T22:30:00+07:00"},
+                    }
+                ],
+                "family@example.com": [
+                    {
+                        "id": "e2",
+                        "summary": "All day",
+                        "start": {"date": "2026-11-26"},
+                    },
+                    {
+                        "id": "e3",
+                        "summary": "Early",
+                        "start": {"dateTime": "2026-11-26T09:30:00+07:00"},
+                    },
+                ],
+            },
+        )
+        with mock.patch.object(server, "service", return_value=api):
+            result = server.calendar_list()
+
+        self.assertEqual(
+            [event["summary"] for event in result["events"]],
+            ["All day", "Early", "Late"],
+        )
+
+    def test_calendar_list_queries_only_requested_calendar(self):
+        api = MultiCalendarApi(
+            calendars=[{"id": "primary"}, {"id": "family@example.com"}],
+            events_by_calendar={
+                "family@example.com": [{"id": "e2", "summary": "Family dinner"}]
+            },
+        )
+        with mock.patch.object(server, "service", return_value=api):
+            result = server.calendar_list(calendarId="family@example.com")
+
+        self.assertEqual(
+            [event["summary"] for event in result["events"]], ["Family dinner"]
+        )
+        self.assertEqual(
+            [call["calendarId"] for call in api.calls if "calendarId" in call],
+            ["family@example.com"],
+        )
 
     def test_event_create_inserts_into_requested_calendar(self):
         api, _ = self.call_with_api(
@@ -99,6 +191,30 @@ class CalendarToolTests(unittest.TestCase):
                 ]
             },
         )
+
+
+class RequestLoggingTests(unittest.TestCase):
+    def test_logs_mcp_request_body(self):
+        payload = b'{"jsonrpc":"2.0","method":"tools/call","id":1}'
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/mcp",
+            "headers": [(b"authorization", b"Bearer test-token")],
+        }
+
+        async def receive():
+            return {"type": "http.request", "body": payload, "more_body": False}
+
+        async def call_next(_):
+            return Response("ok")
+
+        request = Request(scope, receive)
+        with mock.patch.object(server, "BEARER", "test-token"):
+            with self.assertLogs("uvicorn.error", level="INFO") as logs:
+                asyncio.run(server.BearerAuth(app=None).dispatch(request, call_next))
+
+        self.assertIn(payload.decode(), "\n".join(logs.output))
 
 
 class SDKServerTests(unittest.TestCase):
