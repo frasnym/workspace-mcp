@@ -193,6 +193,52 @@ class CalendarToolTests(unittest.TestCase):
         )
 
 
+class RecordingTasks:
+    """Tasks API stand-in with tasks grouped by task list."""
+
+    def __init__(self, tasks_by_list):
+        self.tasks_by_list = tasks_by_list
+        self.calls = []
+        self.resource = None
+
+    def tasklists(self):
+        self.resource = "lists"
+        return self
+
+    def tasks(self):
+        self.resource = "tasks"
+        return self
+
+    def list(self, **kwargs):
+        self.calls.append(kwargs)
+        return self
+
+    def execute(self):
+        if self.resource == "lists":
+            return {"items": [{"id": "l1"}]}
+        return {"items": self.tasks_by_list[self.calls[-1]["tasklist"]]}
+
+
+class TasksToolTests(unittest.TestCase):
+    def test_tasks_list_sorts_by_due_date_oldest_first(self):
+        api = RecordingTasks(
+            tasks_by_list={
+                "l1": [
+                    {"id": "t1", "title": "Later", "due": "2026-11-27T09:00:00Z"},
+                    {"id": "t2", "title": "No due", "status": "needsAction"},
+                    {"id": "t3", "title": "Earlier", "due": "2026-11-26T09:00:00Z"},
+                ]
+            }
+        )
+        with mock.patch.object(server, "service", return_value=api):
+            result = server.tasks_list()
+
+        self.assertEqual(
+            [task["title"] for task in result["tasks"]],
+            ["Earlier", "Later", "No due"],
+        )
+
+
 class RequestLoggingTests(unittest.TestCase):
     def test_logs_mcp_request_body(self):
         payload = b'{"jsonrpc":"2.0","method":"tools/call","id":1}'

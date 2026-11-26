@@ -367,6 +367,7 @@ def tasks_list(pageSize: int = 100) -> dict[str, Any]:
             .execute()
         )
         tasks.extend(task_shape(t, lst["id"]) for t in result.get("items", []))
+    tasks.sort(key=lambda t: (not t["deadlineDate"], t["deadlineDate"]))
     return {"tasks": tasks}
 
 
