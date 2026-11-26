@@ -1,4 +1,4 @@
-"""Minimal Streamable HTTP MCP server for Gmail, Calendar and Tasks.
+"""Streamable HTTP MCP server for Gmail, Calendar and Tasks.
 
 It wraps the Google APIs using the OAuth refresh token already on the Hermes
 volume. Every request requires the bearer token from /opt/data/.env.
@@ -7,21 +7,19 @@ volume. Every request requires the bearer token from /opt/data/.env.
 from __future__ import annotations
 
 import base64
-import json
 import os
-from collections.abc import Callable
 from typing import Any
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from starlette.applications import Starlette
+from mcp.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as HTTPRequest
 from starlette.responses import JSONResponse, Response
-from starlette.routing import Route
 
-PROTOCOL_VERSION = "2025-06-18"
+mcp = MCPServer("workspace")
 
 
 def env_value(name: str, default: str = "") -> str:
@@ -136,199 +134,178 @@ def find_tasklist(task_id: str) -> str:
     return "@default"
 
 
-def s(
-    name: str, description: str, props: dict, required: list[str] | None = None
-) -> dict:
-    schema: dict[str, Any] = {
-        "type": "object",
-        "properties": props,
-        "additionalProperties": True,
-    }
-    if required:
-        schema["required"] = required
-    return {"name": name, "description": description, "inputSchema": schema}
-
-
-TOOLS = [
-    s(
-        "gmail_search",
-        "Search Gmail threads",
-        {"query": {"type": "string"}, "pageSize": {"type": "integer"}},
-    ),
-    s(
-        "gmail_get_thread",
-        "Get a thread",
-        {"threadId": {"type": "string"}, "messageFormat": {"type": "string"}},
-        ["threadId"],
-    ),
-    s(
-        "gmail_get",
-        "Get a message",
-        {"messageId": {"type": "string"}, "messageFormat": {"type": "string"}},
-        ["messageId"],
-    ),
-    s("list_labels", "List Gmail labels", {}),
-    s(
-        "gmail_modify_labels",
-        "Add/remove message labels",
-        {
-            "messageId": {"type": "string"},
-            "addLabelIds": {"type": "array", "items": {"type": "string"}},
-            "removeLabelIds": {"type": "array", "items": {"type": "string"}},
-        },
-        ["messageId"],
-    ),
-    s(
-        "gmail_trash",
-        "Trash a message",
-        {"messageId": {"type": "string"}},
-        ["messageId"],
-    ),
-    s(
-        "calendar_list",
-        "List events in a window",
-        {
-            "startTime": {"type": "string"},
-            "endTime": {"type": "string"},
-            "timeZone": {"type": "string"},
-            "pageSize": {"type": "integer"},
-        },
-    ),
-    s(
-        "event_create",
-        "Create a calendar event",
-        {
-            "summary": {"type": "string"},
-            "startTime": {"type": "string"},
-            "endTime": {"type": "string"},
-        },
-    ),
-    s(
-        "event_update",
-        "Update a calendar event",
-        {"eventId": {"type": "string"}},
-        ["eventId"],
-    ),
-    s(
-        "event_delete",
-        "Delete a calendar event",
-        {"eventId": {"type": "string"}},
-        ["eventId"],
-    ),
-    s("tasks_list_lists", "List task lists", {}),
-    s("tasks_list", "List open tasks", {"pageSize": {"type": "integer"}}),
-    s(
-        "task_create",
-        "Create a task",
-        {"title": {"type": "string"}, "taskListId": {"type": "string"}},
-    ),
-    s(
-        "task_update",
-        "Update a task",
-        {"taskId": {"type": "string"}, "title": {"type": "string"}},
-        ["taskId"],
-    ),
-    s("task_complete", "Complete a task", {"taskId": {"type": "string"}}, ["taskId"]),
-]
-
-
-HANDLERS: dict[str, Callable[[dict], Any]] = {
-    "gmail_search": lambda a: {
+@mcp.tool()
+def gmail_search(query: str = "", pageSize: int = 20) -> dict[str, Any]:
+    """Search Gmail threads"""
+    return {
         "threads": service("gmail")
         .users()
         .threads()
-        .list(userId="me", q=a.get("query", ""), maxResults=a.get("pageSize", 20))
+        .list(userId="me", q=query, maxResults=pageSize)
         .execute()
         .get("threads", [])
-    },
-    "gmail_get_thread": lambda a: {
+    }
+
+
+@mcp.tool()
+def gmail_get_thread(threadId: str, messageFormat: str = "minimal") -> dict[str, Any]:
+    """Get a thread"""
+    return {
         "messages": [
             message_shape(m)
             for m in service("gmail")
             .users()
             .threads()
-            .get(
-                userId="me", id=a["threadId"], format=a.get("messageFormat", "minimal")
-            )
+            .get(userId="me", id=threadId, format=messageFormat)
             .execute()
             .get("messages", [])
         ]
-    },
-    "gmail_get": lambda a: message_shape(
+    }
+
+
+@mcp.tool()
+def gmail_get(messageId: str, messageFormat: str = "full") -> dict[str, Any]:
+    """Get a message"""
+    return message_shape(
         service("gmail")
         .users()
         .messages()
-        .get(userId="me", id=a["messageId"], format=a.get("messageFormat", "full"))
+        .get(userId="me", id=messageId, format=messageFormat)
         .execute()
-    ),
-    "list_labels": lambda a: {
+    )
+
+
+@mcp.tool()
+def list_labels() -> dict[str, Any]:
+    """List Gmail labels"""
+    return {
         "labels": service("gmail")
         .users()
         .labels()
         .list(userId="me")
         .execute()
         .get("labels", [])
-    },
-    "gmail_modify_labels": lambda a: (
+    }
+
+
+@mcp.tool()
+def gmail_modify_labels(
+    messageId: str,
+    addLabelIds: list[str] | None = None,
+    removeLabelIds: list[str] | None = None,
+) -> dict[str, Any]:
+    """Add/remove message labels"""
+    return (
         service("gmail")
         .users()
         .messages()
         .modify(
             userId="me",
-            id=a["messageId"],
+            id=messageId,
             body={
-                "addLabelIds": a.get("addLabelIds", []),
-                "removeLabelIds": a.get("removeLabelIds", []),
+                "addLabelIds": addLabelIds or [],
+                "removeLabelIds": removeLabelIds or [],
             },
         )
         .execute()
-    ),
-    "gmail_trash": lambda a: (
-        service("gmail")
-        .users()
-        .messages()
-        .trash(userId="me", id=a["messageId"])
-        .execute()
-    ),
-    "calendar_list": lambda a: {
+    )
+
+
+@mcp.tool()
+def gmail_trash(messageId: str) -> dict[str, Any]:
+    """Trash a message"""
+    return (
+        service("gmail").users().messages().trash(userId="me", id=messageId).execute()
+    )
+
+
+@mcp.tool()
+def calendar_list(
+    startTime: str | None = None,
+    endTime: str | None = None,
+    timeZone: str | None = None,
+    pageSize: int = 100,
+) -> dict[str, Any]:
+    """List events in a window"""
+    return {
         "events": [
             event_shape(e)
             for e in service("calendar")
             .events()
             .list(
                 calendarId="primary",
-                timeMin=a.get("startTime"),
-                timeMax=a.get("endTime"),
-                timeZone=a.get("timeZone"),
-                maxResults=a.get("pageSize", 100),
+                timeMin=startTime,
+                timeMax=endTime,
+                timeZone=timeZone,
+                maxResults=pageSize,
                 singleEvents=True,
                 orderBy="startTime",
             )
             .execute()
             .get("items", [])
         ]
-    },
-    "event_create": lambda a: event_shape(
-        service("calendar").events().insert(calendarId="primary", body=a).execute()
-    ),
-    "event_update": lambda a: event_shape(
+    }
+
+
+@mcp.tool()
+def event_create(
+    summary: str = "", startTime: str = "", endTime: str = ""
+) -> dict[str, Any]:
+    """Create a calendar event"""
+    return event_shape(
         service("calendar")
         .events()
-        .patch(
+        .insert(
             calendarId="primary",
-            eventId=a["eventId"],
-            body={k: v for k, v in a.items() if k != "eventId"},
+            body={"summary": summary, "startTime": startTime, "endTime": endTime},
         )
         .execute()
-    ),
-    "event_delete": lambda a: (
+    )
+
+
+@mcp.tool()
+def event_update(
+    eventId: str,
+    summary: str | None = None,
+    startTime: str | None = None,
+    endTime: str | None = None,
+    location: str | None = None,
+) -> dict[str, Any]:
+    """Update a calendar event"""
+    body = {
+        key: value
+        for key, value in {
+            "summary": summary,
+            "startTime": startTime,
+            "endTime": endTime,
+            "location": location,
+        }.items()
+        if value is not None
+    }
+    return event_shape(
         service("calendar")
         .events()
-        .delete(calendarId="primary", eventId=a["eventId"])
+        .patch(calendarId="primary", eventId=eventId, body=body)
+        .execute()
+    )
+
+
+@mcp.tool()
+def event_delete(eventId: str) -> dict[str, Any]:
+    """Delete a calendar event"""
+    return (
+        service("calendar")
+        .events()
+        .delete(calendarId="primary", eventId=eventId)
         .execute()
         or {}
-    ),
-    "tasks_list_lists": lambda a: {
+    )
+
+
+@mcp.tool()
+def tasks_list_lists() -> dict[str, Any]:
+    """List task lists"""
+    return {
         "taskLists": [
             {"id": i["id"], "title": i.get("title", "My Tasks")}
             for i in service("tasks")
@@ -337,39 +314,12 @@ HANDLERS: dict[str, Callable[[dict], Any]] = {
             .execute()
             .get("items", [])
         ]
-    },
-    "tasks_list": lambda a: _tasks_list(a.get("pageSize", 100)),
-    "task_create": lambda a: task_shape(
-        service("tasks")
-        .tasks()
-        .insert(
-            tasklist=a.get("taskListId", "@default"),
-            body={k: v for k, v in a.items() if k != "taskListId"},
-        )
-        .execute()
-    ),
-    "task_update": lambda a: task_shape(
-        service("tasks")
-        .tasks()
-        .update(
-            tasklist=a.get("taskListId", find_tasklist(a["taskId"])),
-            task=a["taskId"],
-            body={k: v for k, v in a.items() if k not in ("taskId", "taskListId")},
-        )
-        .execute()
-    ),
-    "task_complete": lambda a: task_shape(
-        service("tasks")
-        .tasks()
-        .complete(
-            tasklist=a.get("taskListId", find_tasklist(a["taskId"])), task=a["taskId"]
-        )
-        .execute()
-    ),
-}
+    }
 
 
-def _tasks_list(page_size: int) -> dict:
+@mcp.tool()
+def tasks_list(pageSize: int = 100) -> dict[str, Any]:
+    """List open tasks"""
     tasks = []
     for lst in (
         service("tasks").tasklists().list(maxResults=100).execute().get("items", [])
@@ -377,81 +327,67 @@ def _tasks_list(page_size: int) -> dict:
         result = (
             service("tasks")
             .tasks()
-            .list(tasklist=lst["id"], maxResults=page_size, showCompleted=False)
+            .list(tasklist=lst["id"], maxResults=pageSize, showCompleted=False)
             .execute()
         )
         tasks.extend(task_shape(t, lst["id"]) for t in result.get("items", []))
     return {"tasks": tasks}
 
 
-def dispatch(payload: dict) -> dict:
-    method = payload.get("method", "")
-    request_id = payload.get("id")
-    if method == "initialize":
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": {
-                "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "workspace", "version": "1.0.0"},
-            },
-        }
-    if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": TOOLS}}
-    if method == "tools/call":
-        params = payload.get("params", {})
-        name = params.get("name", "")
-        args = params.get("arguments", {})
-        if name not in HANDLERS:
-            raise ValueError(f"unknown tool: {name}")
-        result = HANDLERS[name](args)
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": {
-                "content": [
-                    {"type": "text", "text": json.dumps(result, ensure_ascii=False)}
-                ],
-                "structuredContent": result,
-            },
-        }
-    raise ValueError(f"unsupported method: {method}")
+@mcp.tool()
+def task_create(title: str = "", taskListId: str = "@default") -> dict[str, Any]:
+    """Create a task"""
+    return task_shape(
+        service("tasks")
+        .tasks()
+        .insert(tasklist=taskListId, body={"title": title})
+        .execute()
+    )
+
+
+@mcp.tool()
+def task_update(
+    taskId: str,
+    title: str | None = None,
+    taskListId: str | None = None,
+) -> dict[str, Any]:
+    """Update a task"""
+    body = {"title": title} if title is not None else {}
+    return task_shape(
+        service("tasks")
+        .tasks()
+        .update(
+            tasklist=taskListId or find_tasklist(taskId),
+            task=taskId,
+            body=body,
+        )
+        .execute()
+    )
+
+
+@mcp.tool()
+def task_complete(taskId: str, taskListId: str | None = None) -> dict[str, Any]:
+    """Complete a task"""
+    return task_shape(
+        service("tasks")
+        .tasks()
+        .complete(tasklist=taskListId or find_tasklist(taskId), task=taskId)
+        .execute()
+    )
 
 
 class BearerAuth(BaseHTTPMiddleware):
-    async def dispatch(self, request: HTTPRequest, call_next: Callable) -> Response:
+    async def dispatch(self, request: HTTPRequest, call_next: Any) -> Response:
         if request.headers.get("authorization") != f"Bearer {BEARER}" or not BEARER:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return await call_next(request)
 
 
-async def mcp_endpoint(request: HTTPRequest) -> Response:
-    try:
-        payload = await request.json()
-    except ValueError:
-        return JSONResponse(
-            {"jsonrpc": "2.0", "error": {"code": -32700, "message": "invalid JSON"}},
-            status_code=400,
-        )
-    if isinstance(payload, list):
-        return JSONResponse([dispatch(p) for p in payload if p.get("id") is not None])
-    if payload.get("id") is None:
-        return Response(status_code=202)
-    try:
-        return JSONResponse(dispatch(payload))
-    except Exception as exc:  # noqa: BLE001 - JSON-RPC error boundary
-        return JSONResponse(
-            {
-                "jsonrpc": "2.0",
-                "id": payload.get("id"),
-                "result": {
-                    "content": [{"type": "text", "text": str(exc)}],
-                    "isError": True,
-                },
-            }
-        )
-
-
-app = Starlette(routes=[Route("/mcp", mcp_endpoint, methods=["POST"])])
+# A reverse proxy owns Host filtering; the SDK's localhost-only default would reject it.
+security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+app = mcp.streamable_http_app(
+    transport_security=security,
+    json_response=True,
+    stateless_http=True,
+)
 app.add_middleware(BearerAuth)

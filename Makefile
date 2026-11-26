@@ -1,4 +1,3 @@
-PYTHON := .venv/bin/python
 UVICORN := .venv/bin/uvicorn
 INSPECTOR := npx @modelcontextprotocol/inspector
 
@@ -11,7 +10,7 @@ help:
 	@echo "smoke    - list the server's tools via the Inspector CLI"
 
 install:
-	$(PYTHON) -m pip install -r requirements.txt
+	uv sync --frozen
 
 run:
 	@test -f .env || { echo "missing .env: cp .env.example .env first" >&2; exit 1; }

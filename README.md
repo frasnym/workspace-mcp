@@ -2,13 +2,14 @@
 
 Standalone MCP server for the four Uno digests. Owned by this repo, deployed by `homelab-01`'s `bin/workspace-mcp-deploy.sh`.
 
-It exposes 15 tools (Gmail, Calendar, Tasks) over Streamable HTTP at `/mcp`, wrapped around the Google APIs using the refresh token in `secret/workspace-mcp`. Hermes' `default` profile calls it as `mcp_servers.workspace` with a bearer token from the same Vault path; the digest cron jobs call it through `google_mcp_client.py`.
+It exposes 15 tools (Gmail, Calendar, Tasks) over Streamable HTTP at `/mcp`, built with the official Python MCP SDK and wrapped around the Google APIs using the refresh token in `secret/workspace-mcp`. Hermes' `default` profile calls it as `mcp_servers.workspace` with a bearer token from the same Vault path; the digest cron jobs call it through `google_mcp_client.py`.
 
 ## Layout
 
 - `server.py` — MCP server
-- `Dockerfile`, `requirements.txt`, `docker-compose.yml` — container
-- `.vscode/launch.json` — debug config that loads `.env` and runs uvicorn on `127.0.0.1:8000`
+- `Dockerfile`, `docker-compose.yml`, `pyproject.toml`, `uv.lock` — container and dependencies
+- `tests/` — unit tests that pin the SDK server and tool names
+- `.vscode/launch.json` — debug config that launches uvicorn through `uv run`, loads `.env`, and serves `127.0.0.1:8000`
 - `Makefile` — shortcuts to run the server, open the Inspector, and smoke-test the tools
 - `.service` / `.timer` — the timer calls `/usr/local/bin/workspace-mcp-vault-sync.sh` (installed by `homelab-01`) to write `/srv/apps/workspace-mcp/.env` from `secret/workspace-mcp`
 
