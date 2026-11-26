@@ -242,7 +242,7 @@ HANDLERS: dict[str, Callable[[dict], Any]] = {
             .users()
             .threads()
             .get(
-                userId="me", id=a["threadId"], format=a.get("messageFormat", "MINIMAL")
+                userId="me", id=a["threadId"], format=a.get("messageFormat", "minimal")
             )
             .execute()
             .get("messages", [])
@@ -253,7 +253,7 @@ HANDLERS: dict[str, Callable[[dict], Any]] = {
         .users()
         .messages()
         .get(
-            userId="me", id=a["messageId"], format=a.get("messageFormat", "PLAIN_TEXT")
+            userId="me", id=a["messageId"], format=a.get("messageFormat", "full")
         )
         .execute()
     ),
